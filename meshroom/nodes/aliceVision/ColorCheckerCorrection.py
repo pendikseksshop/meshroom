@@ -38,6 +38,34 @@ If multiple color charts are submitted, only the first one will be taken in acco
             uid=[0],
         ),
         desc.ChoiceParam(
+            name="correctionMethod",
+            label="Correction Level",
+            description="Level of correction:\n"
+                        " - luminance: Ajust luminance level only.\n"
+                        " - whiteBalance: Apply white balancing in addition to luminance adjustment.\n"
+                        " - full: Full color correction."
+                        " - bypass: Do nothing.",
+            value="luminance",
+            values=["luminance", "whiteBalance", "full", "bypass"],
+            exclusive=True,
+            uid=[0],
+        ),
+        desc.BoolParam(
+            name="useBestColorCheckerOnly",
+            label="Use Best Color Chart Only",
+            description="If checked, use only the color chart with the best orientation and size to compute the color correction model.\n"
+                        "If unchecked, combine all detected color checkers.",
+            value=True,
+            uid=[0],
+        ),
+        desc.BoolParam(
+            name="keepImageName",
+            label="Keep Image Name",
+            description="Keep image names if different from the view Ids.",
+            value=True,
+            uid=[0],
+        ),
+        desc.ChoiceParam(
             name="extension",
             label="Output File Extension",
             description="Output image file extension.",
