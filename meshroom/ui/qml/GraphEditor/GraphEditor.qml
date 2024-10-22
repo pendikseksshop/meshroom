@@ -911,6 +911,9 @@ Item {
 
                     onDoubleClicked: function(mouse) { root.nodeDoubleClicked(mouse, node) }
 
+                    // Update the Node size
+                    onResized: uigraph.resizeNode(node, width, height)
+
                     onEntered: uigraph.hoveredNode = node
                     onExited: uigraph.hoveredNode = null
 
