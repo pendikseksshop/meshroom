@@ -42,6 +42,7 @@ It fuses all feature matches between image pairs into tracks. Each track represe
             name="matchesFolders",
             label="Matches Folders",
             description="Folder(s) in which computed matches are stored.",
+            exposed=True,
         ),
         desc.ChoiceParam(
             name="describerTypes",

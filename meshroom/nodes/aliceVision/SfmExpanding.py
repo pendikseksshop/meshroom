@@ -25,6 +25,12 @@ class SfMExpanding(desc.AVCommandLineNode):
             description="Tracks file.",
             value="",
         ),
+        desc.File(
+            name="objectFilename",
+            label="Mesh File",
+            description="Optional mesh file. Requires that one pose is already known and lined up with the object geometric frame",
+            value="",
+        ),
         desc.IntParam(
             name="localizerEstimatorMaxIterations",
             label="Localizer Max Ransac Iterations",
