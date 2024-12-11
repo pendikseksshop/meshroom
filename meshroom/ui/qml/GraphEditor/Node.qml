@@ -25,7 +25,8 @@ Item {
     property bool mainSelected: false
     property bool selected: false
     property bool hovered: false
-    property bool dragging: mouseArea.drag.active || leftDragger.drag.active
+    property bool dragging: mouseArea.drag.active
+    property bool resizing: leftDragger.drag.active
     /// Combined x and y
     property point position: Qt.point(x, y)
     /// Styling

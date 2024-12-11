@@ -1033,6 +1033,19 @@ class UIGraph(QObject):
                 self._graph.nodes.index(index), self._graph.nodes.index(index)
             )
 
+            # {{{ Backdrop Selection Logic
+            # Get the node corresponding to the index
+            node = self._graph.nodes[index]
+
+            if node.isBackdrop:
+                for node in self.getBackdropNodes(node):
+                    index = self._graph.nodes.indexOf(node)
+
+                    itemSelection.select(
+                        self._graph.nodes.index(index), self._graph.nodes.index(index)
+                    )
+            # }}}
+
         self._nodeSelection.select(itemSelection, command)
 
         if self.selectedNode and not self.isSelected(self.selectedNode):

@@ -912,7 +912,9 @@ Item {
                     onDoubleClicked: function(mouse) { root.nodeDoubleClicked(mouse, node) }
 
                     // Update the Node size
-                    onResized: uigraph.resizeNode(node, width, height)
+                    onResized: function(width, height) {
+                        uigraph.resizeNode(node, width, height);
+                    }
 
                     onEntered: uigraph.hoveredNode = node
                     onExited: uigraph.hoveredNode = null
@@ -963,7 +965,7 @@ Item {
                     }
 
                     Behavior on x {
-                        enabled: !nodeRepeater.ongoingDrag
+                        enabled: !nodeRepeater.ongoingDrag && !resizing
                         NumberAnimation { duration: 100 }
                     }
                     Behavior on y {
