@@ -153,10 +153,10 @@ Item {
                     parentPins.set(attr.name, false)
                 }
 
-                for (let j = 0; j < attr.flattenedChildren.count; ++j) {
-                    attributes.push(attr.flattenedChildren.at(j))
-                    if (attr.flattenedChildren.at(j).type === "GroupAttribute") {
-                        parentPins.set(attr.flattenedChildren.at(j).name, false)
+                for (let j = 0; j < attr.flatStaticChildren.count; ++j) {
+                    attributes.push(attr.flatStaticChildren.at(j))
+                    if (attr.flatStaticChildren.at(j).type === "GroupAttribute") {
+                        parentPins.set(attr.flatStaticChildren.at(j).name, false)
                     }
                 }
             }
