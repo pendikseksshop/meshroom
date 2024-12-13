@@ -112,7 +112,7 @@ Item {
     Keys.onPressed: function(event) {
         if (event.key === Qt.Key_F) {
             fit()
-        } else if (event.key === Qt.Key_Delete) {
+        } else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) { // Backspace supports both Windows and MacOS Keyboards
             if (event.modifiers === Qt.AltModifier) {
                 uigraph.removeNodesFrom(uigraph.getSelectedNodes())
             } else {
@@ -911,6 +911,11 @@ Item {
 
                     onDoubleClicked: function(mouse) { root.nodeDoubleClicked(mouse, node) }
 
+                    // Update the Node size
+                    onResized: function(width, height) {
+                        uigraph.resizeNode(node, width, height);
+                    }
+
                     onEntered: uigraph.hoveredNode = node
                     onExited: uigraph.hoveredNode = null
 
@@ -960,7 +965,7 @@ Item {
                     }
 
                     Behavior on x {
-                        enabled: !nodeRepeater.ongoingDrag
+                        enabled: !nodeRepeater.ongoingDrag && !resizing
                         NumberAnimation { duration: 100 }
                     }
                     Behavior on y {

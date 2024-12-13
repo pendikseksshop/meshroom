@@ -21,6 +21,7 @@ from .computation import (
 )
 from .node import (
     AVCommandLineNode,
+    Backdrop,
     CommandLineNode,
     InitNode,
     InputNode,
@@ -49,6 +50,7 @@ __all__ = [
     "StaticNodeSize",
     # node
     "AVCommandLineNode",
+    "Backdrop",
     "CommandLineNode",
     "InitNode",
     "InputNode",
