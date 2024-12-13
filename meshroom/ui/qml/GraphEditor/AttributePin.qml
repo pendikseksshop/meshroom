@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 import Utils 1.0
+import MaterialIcons 2.2
 
 /**
  * The representation of an Attribute on a Node.
@@ -13,6 +14,7 @@ RowLayout {
 
     property var nodeItem
     property var attribute
+    property bool expanded: false
     property bool readOnly: false
     /// Whether to display an output pin for input attribute
     property bool displayOutputPinForInput: true
@@ -25,31 +27,41 @@ RowLayout {
                                                       outputAnchor.y + outputAnchor.height / 2)
 
     readonly property bool isList: attribute && attribute.type === "ListAttribute"
+    readonly property bool isGroup: attribute && attribute.type === "GroupAttribute"
+    readonly property bool isChild: attribute && attribute.root
+    readonly property bool isConnected: attribute.isLinkNested || attribute.hasOutputConnections
 
     signal childPinCreated(var childAttribute, var pin)
     signal childPinDeleted(var childAttribute, var pin)
 
     signal pressed(var mouse)
     signal edgeAboutToBeRemoved(var input)
+    signal clicked()
 
     objectName: attribute ? attribute.name + "." : ""
     layoutDirection: Qt.LeftToRight
     spacing: 3
 
     ToolTip {
-        text: attribute.name + ": " + attribute.type
+        text: attribute.fullName + ": " + attribute.type
         visible: nameLabel.hovered
 
         y: nameLabel.y + nameLabel.height
         x: nameLabel.x
     }
 
-    function updatePin(isSrc, isVisible) {
-        if (isSrc) {
-            innerOutputAnchor.linkEnabled = isVisible
-        } else {
-            innerInputAnchor.linkEnabled = isVisible
+    function updateLabel() {
+        var label = ""
+        var expandedGroup = expanded ? "-" : "+"
+        if (attribute && attribute.label !== undefined) {
+            label = attribute.label
+            if (isGroup && attribute.isOutput) {
+                label = label + " " + expandedGroup
+            } else if (isGroup && !attribute.isOutput) {
+                label = expandedGroup + " " + label
+            }
         }
+        return label
     }
 
     // Instantiate empty Items for each child attribute
@@ -171,7 +183,8 @@ RowLayout {
             onReleased: {
                 inputDragTarget.Drag.drop()
             }
-            hoverEnabled: true
+            onClicked: root.clicked()
+            hoverEnabled: root.visible
         }
 
         Edge {
@@ -191,24 +204,65 @@ RowLayout {
         id: nameContainer
         implicitHeight: childrenRect.height
         Layout.fillWidth: true
-        Layout.alignment: Qt.AlignVCenter
+        Layout.alignment: {
+            if (attribute.isOutput) {
+                return Qt.AlignRight | Qt.AlignVCenter
+            }
+            return Qt.AlignLeft | Qt.AlignVCenter
+        }
 
-        Label {
+        MaterialToolLabel {
             id: nameLabel
 
-            enabled: !root.readOnly
-            property bool hovered: (inputConnectMA.containsMouse || inputConnectMA.drag.active || inputDropArea.containsDrag || outputConnectMA.containsMouse || outputConnectMA.drag.active || outputDropArea.containsDrag)
-            text: (attribute && attribute.label) !== undefined ? attribute.label : ""
-            elide: hovered ? Text.ElideNone : Text.ElideMiddle
-            width: hovered ? contentWidth : parent.width
-            font.pointSize: 7
-            horizontalAlignment: attribute && attribute.isOutput ? Text.AlignRight : Text.AlignLeft
+            anchors.rightMargin: 0
             anchors.right: attribute && attribute.isOutput ? parent.right : undefined
-            rightPadding: 0
-            color: {
-                if ((object.hasOutputConnections || object.isLink) && !object.enabled)
+            labelIconRow.layoutDirection: attribute.isOutput ? Qt.RightToLeft : Qt.LeftToRight
+            labelIconRow.spacing: 0
+
+            enabled: !root.readOnly
+            visible: true
+            property bool hovered: (inputConnectMA.containsMouse || inputConnectMA.drag.active ||
+                                    inputDropArea.containsDrag || outputConnectMA.containsMouse ||
+                                    outputConnectMA.drag.active || outputDropArea.containsDrag)
+
+            labelIconColor: {
+                if ((object.hasOutputConnections || object.isLink) && !object.enabled) {
                     return Colors.lightgrey
-                return hovered ? palette.highlight : palette.text
+                } else if (hovered) {
+                    return palette.highlight
+                }
+                return palette.text
+            }
+            labelIconMouseArea.enabled: false  // Prevent mixing mouse interactions between the label and the pin context
+
+            // Text
+            label.text: attribute.label
+            label.font.pointSize: 7
+            label.elide: hovered ? Text.ElideNone : Text.ElideMiddle
+            label.horizontalAlignment: attribute && attribute.isOutput ? Text.AlignRight : Text.AlignLeft
+
+            // Icon
+            iconText: {
+                if (isGroup) {
+                    return expanded ? MaterialIcons.expand_more : MaterialIcons.chevron_right
+                }
+                return ""
+            }
+            iconSize: 7
+            icon.horizontalAlignment: attribute && attribute.isOutput ? Text.AlignRight : Text.AlignLeft
+
+            // Handle tree view for nested attributes
+            icon.leftPadding: {
+                if (attribute.depth != 0 && !attribute.isOutput) {
+                    return attribute.depth * 10
+                }
+                return 0
+            }
+            icon.rightPadding: {
+                if (attribute.depth != 0 && attribute.isOutput) {
+                    return attribute.depth * 10
+                }
+                return 0
             }
         }
     }
@@ -234,8 +288,8 @@ RowLayout {
             anchors.fill: parent
             anchors.margins: 2
             color: {
-                if (object.enabled && (outputConnectMA.containsMouse || outputConnectMA.drag.active ||
-                                       (outputDropArea.containsDrag && outputDropArea.acceptableDrop)))
+                if (modelData.enabled && (outputConnectMA.containsMouse || outputConnectMA.drag.active ||
+                                          (outputDropArea.containsDrag && outputDropArea.acceptableDrop)))
                     return Colors.sysPalette.highlight
                 return Colors.sysPalette.text
             }
@@ -314,8 +368,9 @@ RowLayout {
 
             onPressed: function(mouse) { root.pressed(mouse) }
             onReleased: outputDragTarget.Drag.drop()
+            onClicked: root.clicked()
 
-            hoverEnabled: true
+            hoverEnabled: root.visible
         }
 
         Edge {
