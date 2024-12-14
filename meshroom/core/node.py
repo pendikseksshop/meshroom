@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # coding:utf-8
+# Types
+from __future__ import annotations
+from typing import Callable, List, Optional
+
 import atexit
 import copy
 import datetime
@@ -14,7 +18,6 @@ import types
 import uuid
 from collections import namedtuple
 from enum import Enum
-from typing import Callable, Optional
 
 import meshroom
 from meshroom.common import Signal, Variant, Property, BaseObject, Slot, ListModel, DictModel
@@ -495,9 +498,9 @@ class BaseNode(BaseObject):
         self._nodeType = nodeType
         self.nodeDesc = None
 
-        # instantiate node description if nodeType is valid
-        if nodeType in meshroom.core.nodesDesc:
-            self.nodeDesc = meshroom.core.nodesDesc[nodeType]()
+        # instantiate node description if nodeType has been registered
+        if meshroom.core.pluginManager.registered(nodeType):
+            self.nodeDesc = meshroom.core.pluginManager.descriptor(nodeType)()
 
         self.packageName = self.packageVersion = ""
         self._internalFolder = ""
@@ -1356,7 +1359,7 @@ class BaseNode(BaseObject):
         False otherwise.
         """
         for attr in self._attributes:
-            if attr.enabled and attr.isOutput and (attr.desc.semantic == "sequence" or 
+            if attr.enabled and attr.isOutput and (attr.desc.semantic == "sequence" or
                                                    attr.desc.semantic == "imageList"):
                 return True
         return False
@@ -1373,6 +1376,39 @@ class BaseNode(BaseObject):
             if attr.enabled and attr.isOutput and hasSupportedExt:
                 return True
         return False
+
+    def reload(self) -> BaseNode:
+        """ Reloads the current Node.
+        """
+
+    # Protected
+    def _upgradeAttributeValues(self, node, attrValues, intAttrValues, version):
+        """ Upgrade the attribute values when a Node gets reloaded or upgraded.
+        This basically carries forward any Attribute values which can be. And Alongside it, all of the internal
+        attributes as well.
+
+        Args:
+            node (BaseNode): Node instance.
+            attrValues (dict<str: Any>): Attribute Name to it's value map.
+            intAttrValues (dict<str: Any>): Attribute Name to it's value map.
+        """
+         # Use upgrade method of the node description itself if available
+        try:
+            upgradedAttrValues = node.nodeDesc.upgradeAttributeValues(attrValues, version)
+        except Exception as ex:
+            logging.error("Error in the upgrade implementation of the node: {}.\n{}".format(self.name, repr(ex)))
+            upgradedAttrValues = attrValues
+
+        # Incase the output from the Descriptor's upgrade method does not conform with the requirement
+        if not isinstance(upgradedAttrValues, dict):
+            logging.error("Error in the upgrade implementation of the node: {}. The return type is incorrect.".format(self.name))
+            upgradedAttrValues = attrValues
+
+        # Upgrade the values of the Attributes which can be preserved during a node reload
+        node.upgradeAttributeValues(upgradedAttrValues)
+
+        # Upgrade the values of the internal attributes, like color, notes etc.
+        node.upgradeInternalAttributeValues(intAttrValues)
 
     name = Property(str, getName, constant=True)
     defaultLabel = Property(str, getDefaultLabel, constant=True)
@@ -1583,6 +1619,26 @@ class Node(BaseNode):
             else:
                 self._chunks[0].range = desc.Range()
 
+    # Override
+    def reload(self) -> Node | IncompatiblePluginNode:
+        """ Return a new Node instance based on original node type. If the registered Plugins has errors
+        Then an IncompatiblePluginNode instance is returned.
+        """
+        # The plugin still has errors
+        if self.nodeDesc.plugin.errors:
+            return IncompatiblePluginNode(self._nodeType, position=self.position)
+
+        node = Node(self.nodeType, position=self.position)
+
+        # # convert attributes from a list of tuples into a dict
+        attrValues = {key: value.value for (key, value) in self._attributes.objects.items() if value.isInput}
+        intAttrValues = {key: value.value for (key, value) in self._internalAttributes.objects.items()}
+
+        # Upgrade the attributes
+        self._upgradeAttributeValues(node, attrValues, intAttrValues, Version(self.nodeDesc.plugin.version))
+
+        return node
+
 
 class CompatibilityIssue(Enum):
     """
@@ -1593,6 +1649,7 @@ class CompatibilityIssue(Enum):
     VersionConflict = 2  # mismatch between node's description version and serialized node data
     DescriptionConflict = 3  # mismatch between node's description attributes and serialized node data
     UidConflict = 4  # mismatch between computed UIDs and UIDs stored in serialized node data
+    PluginIssue = 5 # Issue with interpreting the plugin due to any issues with interpreting the plugin
 
 
 class CompatibilityNode(BaseNode):
@@ -1754,8 +1811,9 @@ class CompatibilityNode(BaseNode):
             self._attributes.add(attribute)
         return matchDesc
 
-    @property
-    def issueDetails(self):
+    def _issueDetails(self) -> str:
+        """ Returns Issue Details.
+        """
         if self.issue == CompatibilityIssue.UnknownNodeType:
             return "Unknown node type: '{}'.".format(self.nodeType)
         elif self.issue == CompatibilityIssue.VersionConflict:
@@ -1766,8 +1824,14 @@ class CompatibilityNode(BaseNode):
             return "Node attributes do not match node description."
         elif self.issue == CompatibilityIssue.UidConflict:
             return "Node UID differs from the expected one."
-        else:
-            return "Unknown error."
+        elif self.issue == CompatibilityIssue.PluginIssue:
+            return "Error interpreting the Node Plugin."
+
+        return "Unknown error."
+
+    @property
+    def issueDetails(self) -> str:
+        return self._issueDetails()
 
     @property
     def inputs(self):
@@ -1852,6 +1916,93 @@ class CompatibilityNode(BaseNode):
     issueDetails = Property(str, issueDetails.fget, constant=True)
 
 
+class IncompatiblePluginNode(CompatibilityNode):
+    """ Fallback BaseNode subclass to instantiate Nodes having compatibility issues with current type description.
+    CompatibilityNode creates an 'empty-shell' exposing the deserialized node as-is,
+    with all its inputs and precomputed outputs.
+    """
+
+    def __init__(self, nodeType, position=None, issue=CompatibilityIssue.PluginIssue, parent=None, **kwargs):
+        super(IncompatiblePluginNode, self).__init__(nodeType, {}, position=position, issue=issue, parent=parent)
+
+        self.packageName = self.nodeDesc.packageName
+        self.packageVersion = self.nodeDesc.packageVersion
+        self._internalFolder = self.nodeDesc.internalFolder
+
+        # Fetch the errors for the plugin
+        self._nodeErrors = self.nodeDesc.plugin.errors
+
+        # Add the Attributes
+        for attrDesc in self.nodeDesc.inputs:
+            # Don't add any invalid attributes
+            if attrDesc.invalid:
+                continue
+
+            self._attributes.add(attributeFactory(attrDesc, kwargs.get(attrDesc.name, None), isOutput=False, node=self))
+
+        for attrDesc in self.nodeDesc.outputs:
+            # Don't add any invalid attributes
+            if attrDesc.invalid:
+                continue
+
+            self._attributes.add(attributeFactory(attrDesc, kwargs.get(attrDesc.name, None), isOutput=True, node=self))
+
+        for attrDesc in self.nodeDesc.internalInputs:
+            # Don't add any invalid attributes
+            if attrDesc.invalid:
+                continue
+
+            self._internalAttributes.add(attributeFactory(attrDesc, kwargs.get(attrDesc.name, None), isOutput=False,
+                                                          node=self))
+
+    @property
+    def issueDetails(self) -> str:
+        """ Returns any issue details for the Node.
+        """
+        # The basic issue detail
+        details = [self._issueDetails()]
+
+        # Add the Node Parametric error details
+        details.extend(self._errorDetails())
+
+        return "\n".join(details)
+
+    # Protected
+    def _errorDetails(self) -> List[str]:
+        """ Returns the details of the Parametric errors on the Node.
+        """
+        errors = ["Following parameters have invalid default values/ranges:"]
+
+        # Add the parameters from the node Errors
+        errors.extend([f"* Param {param}" for param in self._nodeErrors])
+
+        return errors
+
+    # Override
+    def reload(self) -> Node | IncompatiblePluginNode:
+        """ Return a new Node instance based on original node type with common inputs initialized.
+        """
+        # The plugin still has errors
+        if self.nodeDesc.plugin.errors:
+            return IncompatiblePluginNode(self._nodeType, position=self.position)
+
+        node = Node(self.nodeType, position=self.position)
+
+        # convert attributes from a list of tuples into a dict
+        attrValues = {key: value for (key, value) in self.inputs.items()}
+        intAttrValues = {key: value for (key, value) in self.internalInputs.items()}
+
+        # Upgrade Attribute values
+        self._upgradeAttributeValues(node, attrValues, intAttrValues, self.version)
+
+        return node
+
+    # Properties
+    # An Incompatible Plguin Node should not be upgraded but only reloaded
+    canUpgrade = Property(bool, lambda _: False, constant=True)
+    issueDetails = Property(str, issueDetails.fget, constant=True)
+
+
 def nodeFactory(nodeDict, name=None, template=False, uidConflict=False):
     """
     Create a node instance by deserializing the given node data.
@@ -1885,12 +2036,15 @@ def nodeFactory(nodeDict, name=None, template=False, uidConflict=False):
 
     compatibilityIssue = None
 
-    nodeDesc = None
-    try:
-        nodeDesc = meshroom.core.nodesDesc[nodeType]
-    except KeyError:
-        # Unknown node type
+    # Returns the desc.Node inherited class or None if the plugin was not registered
+    nodeDesc = meshroom.core.pluginManager.descriptor(nodeType)
+
+    # Node plugin was not registered
+    if not nodeDesc:
         compatibilityIssue = CompatibilityIssue.UnknownNodeType
+
+    if nodeDesc and nodeDesc.plugin.errors:
+        return IncompatiblePluginNode(nodeType, position=position, **inputs, **internalInputs, **outputs)
 
     # Unknown node type should take precedence over UID conflict, as it cannot be resolved
     if uidConflict and nodeDesc:
@@ -1909,7 +2063,7 @@ def nodeFactory(nodeDict, name=None, template=False, uidConflict=False):
             # do not perform that check for internal attributes because there is no point in
             # raising compatibility issues if their number differs: in that case, it is only useful
             # if some internal attributes do not exist or are invalid
-            if not template and (sorted([attr.name for attr in nodeDesc.inputs 
+            if not template and (sorted([attr.name for attr in nodeDesc.inputs
                                          if not isinstance(attr, desc.PushButtonParam)]) != sorted(inputs.keys()) or
                                  sorted([attr.name for attr in nodeDesc.outputs if not attr.isDynamicValue]) !=
                                  sorted(outputs.keys())):
