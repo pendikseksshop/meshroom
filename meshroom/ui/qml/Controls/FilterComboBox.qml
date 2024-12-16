@@ -19,6 +19,7 @@ ComboBox {
 
     property alias filterText: filterTextArea
     property bool validValue: true
+    property string previousText: ""  // Used to restore displayText if the edition is cancelled
 
     enabled: root.editable
     model: {
@@ -38,6 +39,10 @@ ComboBox {
                 if (nameA.startsWith(filterText) && !nameB.startsWith(filterText))
                     return -1
                 if (!nameA.startsWith(filterText) && nameB.startsWith(filterText))
+                    return 1
+                if (nameB > nameA)
+                    return -1
+                if (nameA > nameB)
                     return 1
                 return 0
             })
@@ -67,15 +72,37 @@ ComboBox {
 
     popup: Popup {
         width: combo.width
-        implicitHeight: contentItem.implicitHeight 
+        implicitHeight: contentItem.implicitHeight
+
+        x: 0
+        y: 0
 
         onAboutToShow: {
             filterTextArea.forceActiveFocus()
+            filterTextArea.editingCancelled = true
 
-            if (mapToGlobal(popup.x, popup.y).y + root.implicitHeight * (model.length + 1) > _window.contentItem.height) {
-                y = -((combo.height * (combo.model.length + 1) > _window.contentItem.height) ? _window.contentItem.height*2/3 : combo.height * (combo.model.length + 1))
+            previousText = displayText
+
+            var dropDown = true
+            var posY = mapToGlobal(popup.x, popup.y).y
+
+            /* If the list will go out of the screen by dropping down AND if there is more space up than down,
+             * then open it upwards.
+             * Having both conditions allows to naturally drop down short lists that are visually located close
+             * to the lower border of the window, while opening upwards long lists that are in that same location
+             * AND opening these same lists downwards if they are located closer to the upper border.
+             */
+            if (posY + root.implicitHeight * (model.length * 1) > _window.contentItem.height
+                && posY > _window.contentItem.height / 2) {
+                dropDown = false
+            }
+
+            if (dropDown) {
+                listView.anchors.bottom = undefined
+                listView.anchors.top = filterTextArea.bottom
             } else {
-                y = 0
+                listView.anchors.bottom = filterTextArea.top
+                listView.anchors.top = undefined
             }
         }
 
@@ -83,6 +110,8 @@ ComboBox {
             anchors.fill: parent
             TextArea {
                 id: filterTextArea
+
+                property bool editingCancelled: false
                 leftPadding: 12
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -96,7 +125,12 @@ ComboBox {
 
                 onEditingFinished: {
                     combo.popup.close()
-                    combo.editingFinished(displayText)
+                    if (editingCancelled) {
+                        displayText = previousText
+                        filterTextArea.clear()
+                    } else {
+                        combo.editingFinished(displayText)
+                    }
                 }
 
                 Keys.onEnterPressed: {
@@ -105,6 +139,7 @@ ComboBox {
                     } else {
                         displayText = currentText
                     }
+                    editingCancelled = false
                     editingFinished()
                 }
 
@@ -114,6 +149,7 @@ ComboBox {
                     } else {
                         displayText = currentText
                     }
+                    editingCancelled = false
                     editingFinished()
                 }
 
@@ -142,9 +178,14 @@ ComboBox {
             clip: true
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.top: filterTextArea.bottom
 
-            implicitHeight: (combo.height * (combo.model.length + 1) > _window.contentItem.height) ? _window.contentItem.height*2/3 : contentHeight
+            implicitHeight: {
+                if (combo.height * (combo.model.length + 1) > _window.contentItem.height) {
+                    return _window.contentItem.height * 2 / 3
+                } else {
+                    return contentHeight
+                }
+            }
             model: combo.popup.visible ? combo.delegateModel : null
 
             ScrollBar.vertical: MScrollBar {}
@@ -173,5 +214,10 @@ ComboBox {
 
     onCurrentTextChanged: {
         displayText = currentText
+    }
+
+    onActivated: {
+        // This slot is entered when one of the element of the combo is clicked on, causing the popup to close
+        filterTextArea.editingCancelled = false
     }
 }
